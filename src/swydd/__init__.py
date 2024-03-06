@@ -188,7 +188,9 @@ def cli() -> None:
     for flag_args, flag_kwargs in ctx._flag_defs:
         shared.add_argument(*flag_args, **flag_kwargs)
 
-    shared.add_argument("--verbose", help="use verbose output", action="store_true")
+    shared.add_argument(
+        "-v", "--verbose", help="use verbose output", action="store_true"
+    )
     shared.add_argument(
         "-n", "--dry-run", help="don't execute tasks", action="store_true"
     )
