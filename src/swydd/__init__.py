@@ -231,6 +231,9 @@ def cli() -> None:
                     if not line.startswith("@")
                 )
             )
+        elif ctx.dag:
+            print("currently --dag is a noop")
+            print("future versions will generate a dag for specified target")
         else:
             f(**args)
 
