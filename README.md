@@ -3,6 +3,8 @@
 [![MIT License][license-shield]][license-url]
 [![Ruff][ruff-shield]][ruff-url]
 [![pre-commit][pre-commit-shield]][pre-commit-url]
+<!-- [![Stargazers][stars-shield]][stars-url] -->
+<!-- [![PYPI][pypi-shield]][pypi-url] -->
 
 <div align="center">
 <h1>sywdd</h1>
@@ -33,9 +35,7 @@ if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py"
 - nox
 - pypyr
 - pydoit
-
-<!-- [![Stargazers][stars-shield]][stars-url] -->
-<!-- [![PYPI][pypi-shield]][pypi-url] -->
+https://github.com/zyedidia/knit
 
 <!-- badges -->
 [pre-commit-shield]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white
@@ -44,8 +44,6 @@ if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py"
 [ruff-url]: https://github.com/astral-sh/ruff
 [pypi-shield]: https://img.shields.io/pypi/v/swydd
 [pypi-url]: https://pypi.org/project/sywdd
-<!-- [stars-shield]: https://img.shields.io/github/stars/daylinmorgan/viv.svg -->
-<!-- [stars-url]: https://github.com/daylinmorgan/viv/stargazers -->
 [issues-shield]: https://img.shields.io/github/issues/daylinmorgan/swydd.svg
 [issues-url]: https://github.com/daylinmorgan/swydd/issues
 [license-shield]: https://img.shields.io/github/license/daylinmorgan/sywdd.svg
