@@ -9,11 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  run-tests:
-    uses: ./.github/workflows/test.yml
-
   build-n-publish:
-    needs: run-tests
     permissions:
       id-token: write
     uses: ./.github/workflows/pypi.yml
