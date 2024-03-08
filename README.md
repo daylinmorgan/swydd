@@ -29,13 +29,13 @@ if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py"
 
 ## Alternatives
 
-- make
-- just
-- task
-- nox
-- pypyr
-- pydoit
-https://github.com/zyedidia/knit
+- [make](https://www.gnu.org/software/make/)
+- [just](https://just.systems)
+- [task](https://taskfile.dev)
+- [nox](https://nox.thea.codes/en/stable/)
+- [pypyr](https://pypyr.io)
+- [pydoit](https://pydoit.org)
+- [knit](https://github.com/zyedidia/knit)
 
 <!-- badges -->
 [pre-commit-shield]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white
