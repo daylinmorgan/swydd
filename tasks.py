@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+__import__("sys").path.append("src")  # noqa
+
 import swydd as s
 
 
