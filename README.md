@@ -46,7 +46,7 @@ if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py"
 [pypi-url]: https://pypi.org/project/sywdd
 [issues-shield]: https://img.shields.io/github/issues/daylinmorgan/swydd.svg
 [issues-url]: https://github.com/daylinmorgan/swydd/issues
-[license-shield]: https://img.shields.io/github/license/daylinmorgan/sywdd.svg
+[license-shield]: https://img.shields.io/github/license/daylinmorgan/swydd.svg
 [license-url]: https://github.com/daylinmorgan/swydd/blob/main/LICENSE
 [effver-shield]: https://img.shields.io/badge/version_scheme-EffVer-0097a7
 [effver-url]: https://jacobtomlinson.dev/effver
