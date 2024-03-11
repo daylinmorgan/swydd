@@ -1,6 +1,5 @@
 [project]
 name = "swydd"
-version = "0.1.0"
 description = "swydd will yield desired deliverables"
 authors = [
     {name = "Daylin Morgan", email = "daylinmorgan@gmail.com"},
@@ -9,14 +8,14 @@ dependencies = []
 requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "MIT"}
-
-[build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
-
+dynamic = ["version"]
 
 [tool.pdm]
 distribution = true
+
+[tool.pdm.version]
+source = "file"
+path = "swydd/__init__.py"
 
 [tool.pdm.dev-dependencies]
 dev = [
@@ -32,3 +31,9 @@ ignore = ["E402"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 warn_unused_configs = true
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
