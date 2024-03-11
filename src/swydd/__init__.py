@@ -17,12 +17,24 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 __version__ = "0.1.0"
 
 
+class Graph:
+    def __init__(self) -> None:
+        self.nodes = {}
+
+    def add_edges(self, edges):
+        for edge_1, edge_2 in edges:
+            if edge_1 not in self.nodes:
+                self.nodes[edge_1] = []
+            if edge_2 not in self.nodes:
+                self.nodes[edge_2] = []
+            self.nodes[edge_1].append(edge_2)
+
+
 class SubcommandHelpFormatter(RawDescriptionHelpFormatter):
     """custom help formatter to remove bracketed list of subparsers"""
 
     def _format_action(self, action: Action) -> str:
         # TODO: actually modify the real "format_action for better control"
-        print(action)
         parts = super(RawDescriptionHelpFormatter, self)._format_action(action)
         if action.nargs == argparse.PARSER:
             lines = parts.split("\n")[1:]
@@ -44,13 +56,15 @@ def _id_from_func(f: Callable[..., Any]):
 
 
 class Task:
-    def __init__(self, func=Callable[..., Any]) -> None:
-        self.show = False
+    def __init__(
+        self, func=Callable[..., Any], name: Optional[str] = None, show: bool = False
+    ) -> None:
+        self.show = show
         self.id = _id_from_func(func)
-        self.name = func.__name__
+        self.name = name if name else func.__name__
         self.func = func
         self.targets = []
-
+        self.needs = []
         self._process_signature()
 
     def _process_signature(self) -> None:
@@ -94,6 +108,16 @@ class Context:
         if (id_ := _id_from_func(func)) not in self._tasks:
             raise ValueError
         self._tasks[id_]._update_option(name, help, **kwargs)
+
+    def _add_target(self, func: Callable[..., Any], target: str) -> None:
+        self._add_task(func)
+        id_ = _id_from_func(func)
+        self._tasks[id_].targets.append(target)
+
+    def _add_need(self, func: Callable[..., Any], need: str) -> None:
+        self._add_task(func)
+        id_ = _id_from_func(func)
+        self._tasks[id_].needs.append(need)
 
     def add_flag(self, *args: str, **kwargs: Any) -> None:
         name = max(args, key=len).split("-")[-1]
@@ -151,7 +175,24 @@ def targets(
     def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
         ctx._add_task(func)
         for arg in args:
+            ctx._add_target(func, arg)
             ctx.targets[arg] = _id_from_func(func)
+
+        @wraps(func)
+        def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
+            return func(*args, **kwargs)
+
+        return inner
+
+    return wrapper
+
+
+def needs(
+    *args: str,
+) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
+    def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
+        for arg in args:
+            ctx._add_need(func, arg)
 
         @wraps(func)
         def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
@@ -228,38 +269,6 @@ def generate_task_subparser(
     return subparser
 
 
-def generate_subparser(
-    shared: ArgumentParser,
-    subparsers: _SubParsersAction,
-    name: str,
-    info: Dict[str, Any],
-) -> ArgumentParser:
-    func = info["func"]
-    signature = info["signature"]
-    help = info.get("help")
-    doc = func.__doc__.splitlines()[0] if func.__doc__ else ""
-    subparser = subparsers.add_parser(
-        name, help=doc, description=func.__doc__, parents=[shared]
-    )
-    for name, param in signature.parameters.items():
-        args = (f"--{name}",)
-        kwargs = {"help": help.get(name, "")} if help else {}
-
-        if param.annotation == bool:
-            kwargs.update({"default": False, "action": "store_true"})
-        elif param.annotation != Parameter.empty:
-            kwargs.update({"type": param.annotation})
-        kwargs.update(
-            {"required": True}
-            if param.default == Parameter.empty
-            else {"default": param.default}
-        )
-
-        subparser.add_argument(*args, **kwargs)
-    subparser.set_defaults(func=func)
-    return subparser
-
-
 def add_targets(
     shared: ArgumentParser, subparsers: _SubParsersAction, ctx: Context
 ) -> None:
@@ -286,24 +295,21 @@ def cli() -> None:
     )
 
     subparsers = parser.add_subparsers(
-        title="tasks",
-        required=True,
+        title="tasks", required=True, dest="pos-arg", metavar="<task/target>"
     )
 
     if len(sys.argv) > 1 and sys.argv[1] == "self":
-        generate_subparser(
-            shared,
-            subparsers,
-            "self",
-            dict(func=manage, signature=inspect.signature(manage)),
+        generate_task_subparser(
+            shared, subparsers, Task(manage, name="self", show=True)
         )
 
     add_targets(shared, subparsers, ctx)
 
-    for _, task in ctx._tasks.items():
+    for task in ctx._tasks.values():
         generate_task_subparser(shared, subparsers, task)
 
     args = vars(parser.parse_args())
+    _ = args.pop("pos-arg", None)
     ctx.verbose = args.pop("verbose", False)
     ctx.dry = args.pop("dry_run", False)
     ctx.dag = args.pop("dag", False)
