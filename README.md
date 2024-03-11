@@ -23,7 +23,7 @@ if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py"
         import sys; from urllib.request import urlopen; from urllib.error import URLError # noqa
         try: r = urlopen("https://raw.githubusercontent.com/daylinmorgan/swydd/main/src/swydd/__init__.py") # noqa
         except URLError as e: sys.exit(f"{e}\n") # noqa
-        src.parent.mkdir(exists_ok=True); src.write_text(r.read().decode("utf-8")); # noqa
+        src.parent.mkdir(exist_ok=True); src.write_text(r.read().decode("utf-8")); # noqa
 # fmt: on
 ```
 
