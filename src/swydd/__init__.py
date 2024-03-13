@@ -12,22 +12,10 @@ from argparse import (
 )
 from functools import wraps
 from inspect import Parameter
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 __version__ = "0.1.0"
-
-
-class Graph:
-    def __init__(self) -> None:
-        self.nodes = {}
-
-    def add_edges(self, edges):
-        for edge_1, edge_2 in edges:
-            if edge_1 not in self.nodes:
-                self.nodes[edge_1] = []
-            if edge_2 not in self.nodes:
-                self.nodes[edge_2] = []
-            self.nodes[edge_1].append(edge_2)
 
 
 class SubcommandHelpFormatter(RawDescriptionHelpFormatter):
@@ -84,6 +72,22 @@ class Task:
         self.show = True
 
 
+class Graph:
+    def __init__(self) -> None:
+        self.nodes = {}
+        self.edges = {}
+
+    def add_nodes(self, task, node1, node2):
+        if node1 not in self.nodes:
+            self.nodes[node1] = []
+        if node2 not in self.nodes:
+            self.nodes[node2] = []
+
+        self.edges[node1] = task
+        if node2:
+            self.nodes[node1].append(node2)
+
+
 class Context:
     def __init__(self) -> None:
         self._tasks: Dict[str, Any] = {}
@@ -92,17 +96,20 @@ class Context:
         self.flags: Dict[str, Any] = {}
         self._flag_defs: List[Tuple[Tuple[str, ...], Any]] = []
         self.show_targets = True
+        self._graph = Graph()
 
         # global flags
         self.dry = False
         self.dag = False
         self.verbose = False
+        self.force = False
 
-    def _add_task(self, func: Callable[..., Any], show: bool = False) -> None:
+    def _add_task(self, func: Callable[..., Any], show: bool = False) -> str:
         if (id_ := _id_from_func(func)) not in self._tasks:
             self._tasks[id_] = Task(func)
         if show:
             self._tasks[id_]._mark()
+        return id_
 
     def _update_option(self, func: Callable[..., Any], name: str, help: str, **kwargs):
         if (id_ := _id_from_func(func)) not in self._tasks:
@@ -118,6 +125,18 @@ class Context:
         self._add_task(func)
         id_ = _id_from_func(func)
         self._tasks[id_].needs.append(need)
+
+    def _generate_graph(self) -> None:
+        for task in self._tasks.values():
+            if not task.targets:
+                continue
+
+            for target in task.targets:
+                if not task.needs:
+                    self._graph.add_nodes(task, target, None)
+                else:
+                    for need in task.needs:
+                        self._graph.add_nodes(task, target, need)
 
     def add_flag(self, *args: str, **kwargs: Any) -> None:
         name = max(args, key=len).split("-")[-1]
@@ -135,7 +154,7 @@ class Exec:
 
     def execute(self) -> int:
         if ctx.verbose:
-            sys.stdout.write(f"exec: {self.cmd}\n")
+            sys.stdout.write(f"swydd exec | {self.cmd}\n")
         if self.shell:
             return subprocess.run(self.cmd, shell=True).returncode
         else:
@@ -144,9 +163,6 @@ class Exec:
 
 def sh(cmd: str, shell: bool = False) -> int:
     return Exec(cmd, shell=shell).execute()
-
-
-# decorators
 
 
 def task(func: Callable[..., Any]) -> Callable[..., None]:
@@ -210,7 +226,7 @@ def option(
 ) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
     def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
         ctx._add_task(func)
-        ctx._update_option(func, name, help, **help_kwargs)
+        ctx._update_option(func, name.replace("-", "_"), help, **help_kwargs)
 
         @wraps(func)
         def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
@@ -226,6 +242,36 @@ def manage(version: bool = False) -> None:
     print("self management stuff")
     if version:
         print("current version", __version__)
+
+
+def noop(*args, **kwargs) -> Any:
+    pass
+
+
+def target_generator(
+    target: str,
+    needs: List[str] | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
+    def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
+        @wraps(func)
+        def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
+            if not (target_path := Path(target)).is_file():
+                return func(*args, **kwargs)
+            elif not needs:
+                sys.stderr.write(f"{target} already exists\n")
+            else:
+                target_stats = target_path.stat()
+                needs_stats = [Path(need).stat() for need in needs]
+                if any((stat.st_mtime > target_stats.st_mtime for stat in needs_stats)):
+                    return func(*args, **kwargs)
+                else:
+                    sys.stderr.write("doing nothing\n")
+
+            return noop(*args, **kwargs)
+
+        return inner
+
+    return wrapper
 
 
 def generate_task_subparser(
@@ -250,7 +296,8 @@ def generate_task_subparser(
     )
     for name, info in task.params.items():
         param = info.get("Parameter")  # must check signature for args?
-        args = (f"--{name}",)
+
+        args = (f"--{name.replace('_','-')}",)
         kwargs = {"help": info.get("help", "")}
 
         if param.annotation == bool:
@@ -265,7 +312,13 @@ def generate_task_subparser(
 
         kwargs.update(info.get("kwargs", {}))
         subparser.add_argument(*args, **kwargs)
-    subparser.set_defaults(func=task.func)
+
+    f = (
+        target_generator(target, ctx._graph.nodes[target])(task.func)
+        if target
+        else task.func
+    )
+    subparser.set_defaults(func=f)
     return subparser
 
 
@@ -274,11 +327,15 @@ def add_targets(
 ) -> None:
     for target, id_ in ctx.targets.items():
         subp = generate_task_subparser(shared, subparsers, ctx._tasks[id_], str(target))
+
         if subp:
             subp.add_argument("--dag", help="show target dag", action="store_true")
+            subp.add_argument("--force", help="force execution", action="store_true")
 
 
 def cli() -> None:
+    ctx._generate_graph()
+
     parser = ArgumentParser(
         formatter_class=SubcommandHelpFormatter, usage="%(prog)s <task/target> [opts]"
     )
@@ -313,6 +370,7 @@ def cli() -> None:
     ctx.verbose = args.pop("verbose", False)
     ctx.dry = args.pop("dry_run", False)
     ctx.dag = args.pop("dag", False)
+    ctx.force = args.pop("force", False)
     for name in ctx.flags:
         ctx.flags[name] = args.pop(name)
 

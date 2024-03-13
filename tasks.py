@@ -18,11 +18,11 @@ def bootstrap():
 
 
 @s.task
-@s.option("types", "also run mypy")
-def check(types: bool = False):
+@s.option("no-mypy", "skip mypy")
+def check(no_mypy: bool = False):
     """run pre-commit (and mypy)"""
     s.sh("pre-commit run --all")
-    if types:
+    if not no_mypy:
         s.sh("mypy src/")
 
 
