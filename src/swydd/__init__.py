@@ -90,6 +90,7 @@ class Graph:
 
 class Context:
     def __init__(self) -> None:
+        self._env: Dict[str, str] = {}
         self._tasks: Dict[str, Any] = {}
         self.targets: Dict[str, Any] = {}
         self.data: Any = None
@@ -147,6 +148,10 @@ class Context:
 ctx = Context()
 
 
+def define_env(key: str, value: str) -> None:
+    ctx._env.update({key: value})
+
+
 class Exec:
     def __init__(self, cmd: str, shell: bool = False) -> None:
         self.shell = shell
@@ -156,9 +161,13 @@ class Exec:
         if ctx.verbose:
             sys.stdout.write(f"swydd exec | {self.cmd}\n")
         if self.shell:
-            return subprocess.run(self.cmd, shell=True).returncode
+            return subprocess.run(
+                self.cmd, shell=True, env={**os.environ, **ctx._env}
+            ).returncode
         else:
-            return subprocess.run(shlex.split(self.cmd)).returncode
+            return subprocess.run(
+                shlex.split(self.cmd), env={**os.environ, **ctx._env}
+            ).returncode
 
 
 def sh(cmd: str, shell: bool = False) -> int:
@@ -174,21 +183,38 @@ def task(func: Callable[..., Any]) -> Callable[..., None]:
     return wrap
 
 
-# def inspect_wrapper(place, func):
-#     if wrapped := getattr(func, "__wrapped__", None):
-#         print(place, "wrapped->", id(wrapped))
-#
-#     print(
-#         place,
-#         id(func),
-#     )
-#
+def inspect_wrapper(place, func):
+    if wrapped := getattr(func, "__wrapped__", None):
+        print(place, "wrapped->", id(wrapped))
+
+    print(
+        place,
+        id(func),
+    )
+
+
+def task2(
+    hidden: bool = False,
+) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
+    def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
+        ctx._add_task(func, show=True)
+
+        inspect_wrapper("task", func)
+
+        @wraps(func)
+        def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
+            return func(*args, **kwargs)
+
+        return inner
+
+    return wrapper
 
 
 def targets(
     *args: str,
 ) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
     def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
+        inspect_wrapper("targets", func)
         ctx._add_task(func)
         for arg in args:
             ctx._add_target(func, arg)
@@ -300,7 +326,7 @@ def generate_task_subparser(
         args = (f"--{name.replace('_','-')}",)
         kwargs = {"help": info.get("help", "")}
 
-        if param.annotation == bool:
+        if param.annotation is bool:
             kwargs.update({"default": False, "action": "store_true"})
         elif param.annotation != Parameter.empty:
             kwargs.update({"type": param.annotation})
