@@ -16,15 +16,12 @@
 
 ```python
 # https://github.com/daylinmorgan/swydd?tab=readme-ov-file#automagic-snippet
-# fmt: off
-if not (src := __import__("pathlib").Path(__file__).parent / "swydd/__init__.py").is_file(): # noqa
-    try: __import__("swydd") # noqa
-    except ImportError:
-        import sys; from urllib.request import urlopen; from urllib.error import URLError # noqa
-        try: r = urlopen("https://raw.githubusercontent.com/daylinmorgan/swydd/main/src/swydd/__init__.py") # noqa
-        except URLError as e: sys.exit(f"{e}\n") # noqa
-        src.parent.mkdir(exist_ok=True); src.write_text(r.read().decode("utf-8")); # noqa
-# fmt: on
+_src = (_i := __import__)("pathlib").Path(__file__).parent / "swydd/__init__.py"
+if not (_i("importlib.util").util.find_spec("sywdd") or _src.is_file()):
+    _i("sys").stderr.write(f"installing swydd to {_src}\n")
+    _r= _i("urllib.request").request.urlopen("https://swydd.dayl.in/swydd.py")
+    _src.parent.mkdir(exist_ok=True)
+    _src.write_text(_r.read().decode("utf-8"))
 ```
 
 ## Alternatives
