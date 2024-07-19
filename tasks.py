@@ -4,6 +4,7 @@ __import__("sys").path.append("src")  # noqa
 
 import shutil
 import sys
+from pathlib import Path
 
 import swydd as s
 
@@ -24,6 +25,25 @@ def check(no_mypy: bool = False):
     s.sh("pre-commit run --all")
     if not no_mypy:
         s.sh("mypy src/")
+
+
+def write_docs_src(tag):
+    src_text = s.Exec(f"git show {tag}:src/swydd/__init__.py", output=True).get().stdout
+    (verdir := (Path(__file__).parent / "docs" / tag)).mkdir(exist_ok=True)
+    (verdir / "swydd.py").write_text(src_text)
+
+
+@s.task
+def docs():
+    """build docs"""
+    p = s.Exec("git tag --list", output=True).get()
+    versions = [line for line in p.stdout.splitlines() if line.startswith("v")]
+    for ver in versions:
+        write_docs_src(ver)
+    shutil.copyfile(
+        Path(__file__).parent / "src" / "swydd" / "__init__.py",
+        Path(__file__).parent / "docs" / "swydd.py",
+    )
 
 
 s.cli()

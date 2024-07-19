@@ -14,7 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: cp src/swydd/__init__.py docs/swydd.py
+      - name: build docs
+        run: ./tasks.py docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@latest
