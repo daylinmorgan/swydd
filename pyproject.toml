@@ -15,7 +15,7 @@ distribution = true
 
 [tool.pdm.version]
 source = "file"
-path = "swydd/__init__.py"
+path = "src/swydd/__init__.py"
 
 [tool.pdm.dev-dependencies]
 dev = [
