@@ -33,9 +33,7 @@ def write_docs_src(tag):
     (verdir / "swydd.py").write_text(src_text)
 
 
-@s.task
-def docs():
-    """build docs"""
+def copy_source():
     p = s.Exec("git tag --list", output=True).get()
     versions = [line for line in p.stdout.splitlines() if line.startswith("v")]
     for ver in versions:
@@ -44,6 +42,12 @@ def docs():
         Path(__file__).parent / "src" / "swydd" / "__init__.py",
         Path(__file__).parent / "docs" / "swydd.py",
     )
+
+
+@s.task
+def docs():
+    """build docs"""
+    copy_source()
 
 
 s.cli()
