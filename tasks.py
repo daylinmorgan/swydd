@@ -1,53 +1,51 @@
 #!/usr/bin/env python3
 
-__import__("sys").path.append("src")  # noqa
+__import__("sys").path.append("src")
 
 import shutil
 import sys
-from pathlib import Path
 
-import swydd as s
+from swydd import cli, get, option, path, sub, task
 
 
-@s.task
+@task
 def bootstrap():
     """setup swydd dev environment"""
-    if not shutil.which("pdm"):
-        sys.exit("pdm necessary for swydd development")
-    s.sh("pdm install")
-    s.sh("pdm run pre-commit install")
+    if not shutil.which("uv"):
+        sys.exit("uv necessary for swydd development")
+    sub < "uv sync"
+    sub < "uv run pre-commit install"
 
 
-@s.task
-@s.option("no-mypy", "skip mypy")
-def check(no_mypy: bool = False):
+@task
+def tests():
+    """run pytest"""
+    sub < "uv run pytest"
+
+
+@task
+@option("skip-mypy", "skip mypy")
+def check(skip_mypy: bool = False):
     """run pre-commit (and mypy)"""
-    s.sh("pre-commit run --all")
-    if not no_mypy:
-        s.sh("mypy src/")
-
-
-def write_docs_src(tag):
-    src_text = s.Exec(f"git show {tag}:src/swydd/__init__.py", output=True).get().stdout
-    (verdir := (Path(__file__).parent / "docs" / tag)).mkdir(exist_ok=True)
-    (verdir / "swydd.py").write_text(src_text)
+    sub < "uv run pre-commit run --all"
+    if not skip_mypy:
+        sub < "uv run mypy src/"
 
 
 def copy_source():
-    p = s.Exec("git tag --list", output=True).get()
-    versions = [line for line in p.stdout.splitlines() if line.startswith("v")]
-    for ver in versions:
-        write_docs_src(ver)
-    shutil.copyfile(
-        Path(__file__).parent / "src" / "swydd" / "__init__.py",
-        Path(__file__).parent / "docs" / "swydd.py",
-    )
+    tags = get < "git tag --list"
+    versions = [line for line in tags.splitlines() if line.startswith("v")]
+    for tag in versions:
+        (path / f"docs/{tag}/swydd.py") < (
+            get < f"git show {tag}:src/swydd/__init__.py"
+        )
+    (path / "docs/swydd.py") < (path / "src/swydd/__init__.py")
 
 
-@s.task
+@task
 def docs():
     """build docs"""
     copy_source()
 
 
-s.cli()
+cli()

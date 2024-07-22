@@ -18,14 +18,14 @@
 # https://github.com/daylinmorgan/swydd?tab=readme-ov-file#automagic-snippet
 _src = (_i := __import__)("pathlib").Path(__file__).parent / "swydd/__init__.py"
 if not (_i("importlib.util").util.find_spec("sywdd") or _src.is_file()):
-    _i("sys").stderr.write(f"installing swydd to {_src}\n")
-    _r= _i("urllib.request").request.urlopen("https://swydd.dayl.in/swydd.py")
+    _r = _i("urllib.request").request.urlopen("https://swydd.dayl.in/swydd.py")
     _src.parent.mkdir(exist_ok=True)
     _src.write_text(_r.read().decode("utf-8"))
 ```
 
 ## Alternatives
 
+- [task.mk](https://gh.dayl.in/task.mk)
 - [make](https://www.gnu.org/software/make/)
 - [just](https://just.systems)
 - [task](https://taskfile.dev)

@@ -2,6 +2,7 @@ import argparse
 import inspect
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from argparse import (
@@ -13,11 +14,13 @@ from argparse import (
 from functools import wraps
 from inspect import Parameter
 from pathlib import Path
+from subprocess import PIPE, CompletedProcess, Popen
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 __version__ = "0.1.0"
 
 
+# TODO: make this ouput wider help when necessary
 class SubcommandHelpFormatter(RawDescriptionHelpFormatter):
     """custom help formatter to remove bracketed list of subparsers"""
 
@@ -152,24 +155,84 @@ def define_env(key: str, value: str) -> None:
     ctx._env.update({key: value})
 
 
-class Exec:
+class SwyddSubResult:
     def __init__(
-        self, cmd: str, shell: bool = False, output: bool = False, **kwargs: Any
+        self,
+        code: int,
+        stdout: None | str,
+        stderr: None | str,
+        process: CompletedProcess | Popen,
     ) -> None:
-        self.shell = shell
-        self.cmd = cmd
-        if shell:
-            self._cmd = cmd
-        else:
-            self._cmd = shlex.split(cmd)
+        self.code = code
+        self.stdout = stdout
+        self.stderr = stderr
+        self._proces = process
+
+    @classmethod
+    def from_completed_process(cls, p: CompletedProcess) -> "SwyddSubResult":
+        return cls(p.returncode, p.stdout, p.stderr, p)
+
+    @classmethod
+    def from_popen(
+        cls,
+        p: Popen,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> "SwyddSubResult":
+        return cls(p.returncode, stdout, stderr, p)
+
+
+class SwyddProc:
+    """
+    usage:
+        sub < proc("echo $WORD world", env={'WORD':'hello'})
+        sub < (proc | "single proc")
+
+        sub < (proc | "echo hello" | "wc -c")
+        sub(proc("hello world").pipe("wc -c"))
+
+        sub < (proc & "cat -a" & "echo unreachable")
+        sub(proc("cat -a").then("echo unreachable")
+    """
+
+    def __init__(
+        self, cmd: str | None = None, output: bool = False, **kwargs: Any
+    ) -> None:
+        self._cmd = cmd
+        if cmd:
+            self.cmd = shlex.split(cmd)
         self.output = output
         self.cmd_kwargs = kwargs
 
+    def pipe(self, proc: "str | SwyddProc") -> "SwyddPipe | SwyddProc":
+        if isinstance(proc, str):
+            if self._cmd is None:
+                return SwyddPipe(SwyddProc(proc))
+            else:
+                return SwyddPipe(self, proc)
+        elif isinstance(proc, SwyddProc):
+            return SwyddPipe(proc)
+
+    def __or__(self, proc: "str | SwyddProc") -> "SwyddPipe | SwyddProc":
+        return self.pipe(proc)
+
+    def then(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+        if self._cmd:
+            return SwyddSeq(self, proc)
+
+        if isinstance(proc, SwyddProc):
+            return SwyddSeq(proc)
+        # should swydd seq even be supported here?
+        elif isinstance(proc, SwyddSeq):
+            return proc
+        else:
+            return SwyddSeq(SwyddProc(proc))
+
+    def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+        return self.then(proc)
+
     def _build_kwargs(self) -> Dict[str, Any]:
         sub_kwargs: Dict[str, Any] = dict(env={**os.environ, **ctx._env})
-
-        if self.shell:
-            sub_kwargs["shell"] = True
 
         if self.output:
             sub_kwargs["text"] = True  # assume text is the desired output
@@ -178,25 +241,226 @@ class Exec:
         sub_kwargs.update(**self.cmd_kwargs)
         return sub_kwargs
 
-    def execute(self) -> subprocess.CompletedProcess:
+    def execute(self, output: bool = False) -> SwyddSubResult:
         if ctx.verbose:
-            sys.stdout.write(f"swydd exec | {self.cmd}\n")
+            sys.stdout.write(f"swydd exec | {self._cmd}\n")
 
-        return subprocess.run(self._cmd, **self._build_kwargs())
+        self.output = self.output or output
+        return SwyddSubResult.from_completed_process(
+            subprocess.run(self.cmd, **self._build_kwargs())
+        )
 
-    def get(self):
-        p = self.execute()
-        if p.returncode != 0:
-            sys.stderr.write("non-zero exit status in Exec().get()\n")
-            sys.stderr.write(f"  cmd: {self.cmd}\n")
-            sys.stderr.write(f"  stdout: {p.stdout}\n")
-            sys.stderr.write(f"  stderr: {p.stderr}\n")
-            sys.exit(p.returncode)
-        return p
+    def check(self) -> bool:
+        return self.execute().code == 0
 
 
-def sh(cmd: str, shell: bool = False, **kwargs: Any) -> subprocess.CompletedProcess:
-    return Exec(cmd, shell=shell, **kwargs).execute()
+class SwyddPipe:
+    def __init__(self, *procs: "str | SwyddProc | SwyddPipe") -> None:
+        self._procs = []
+        for proc in procs:
+            if isinstance(proc, str):
+                self._procs.append(SwyddProc(proc))
+            elif isinstance(proc, SwyddProc):
+                self._procs.append(proc)
+            elif isinstance(proc, SwyddPipe):
+                self._procs.extend(proc._procs)
+
+    @classmethod
+    def __call__(cls, *args, **kwargs) -> "SwyddPipe":
+        return cls(*args, **kwargs)
+
+    def check(self) -> bool:
+        return self.execute().code == 0
+
+    def execute(self, output: bool = False) -> SwyddSubResult:
+        procs = []
+        sub_kwargs: Dict[str, Any] = dict(env={**os.environ, **ctx._env})
+        for i, cmd in enumerate(self._procs, 1):
+            kwargs = {}
+            if i > 1:
+                kwargs.update(stdin=procs[-1].stdout)
+            if i != len(self._procs):
+                kwargs.update(stdout=PIPE)
+            elif i == len(self._procs):
+                if output:
+                    kwargs.update({"text": True, "stdout": PIPE, "stderr": PIPE})
+
+            procs.append(Popen(cmd.cmd, **{**sub_kwargs, **kwargs}))
+
+        for p in procs[:-1]:
+            if p.stdout:
+                p.stdout.close()
+
+        out, err = procs[-1].communicate()
+        return SwyddSubResult.from_popen(procs[-1], out, err)
+
+    def pipe(self, proc: "str | SwyddProc | SwyddPipe") -> "SwyddPipe":
+        return SwyddPipe(self, proc)
+
+    def __or__(self, proc: "str | SwyddProc | SwyddPipe") -> "SwyddPipe":
+        return self.pipe(proc)
+
+
+class SwyddSeq:
+    def __init__(self, *procs: "str | SwyddProc | SwyddSeq") -> None:
+        self._procs = []
+        for proc in procs:
+            if isinstance(proc, SwyddSeq):
+                self._procs.extend(self._procs)
+            if isinstance(proc, SwyddProc):
+                self._procs.append(proc)
+            elif isinstance(proc, str):
+                self._procs.append(SwyddProc(proc))
+
+    @classmethod
+    def __call__(cls, *args, **kwargs) -> "SwyddSeq":
+        return cls(*args, **kwargs)
+
+    def then(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+        return SwyddSeq(*self._procs, proc)
+
+    def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+        return self.then(proc)
+
+    def execute(self, output: bool = False) -> "SwyddSubResult":
+        results = []
+        for proc in self._procs:
+            results.append(result := proc.execute(output=output))
+            if result.code != 0:
+                return result
+
+        return results[-1]
+
+    def run(self) -> int:
+        rc = 0
+        for proc in self._procs:
+            if (rc := proc.execute().code) != 0:
+                return rc
+        return rc
+
+    def check(self) -> bool:
+        return self.run() == 0
+
+
+class SwyddGet:
+    def __call__(
+        self, proc: str | SwyddProc | SwyddPipe | SwyddSeq, stdout=True, stderr=False
+    ) -> str:
+        if isinstance(proc, str):
+            result = SwyddProc(proc, output=True).execute()
+        elif isinstance(proc, SwyddPipe):
+            result = proc.execute(output=True)
+        elif isinstance(proc, SwyddProc):
+            result = proc.execute()
+        elif isinstance(proc, SwyddSeq):
+            result = proc.execute(output=True)
+        else:
+            raise NotImplementedError(f"not implemented for type: {type(exec)}")
+
+        output = ""
+        if stdout and result.stdout:
+            output += result.stdout.strip()
+        if stderr and result.stderr:
+            output += result.stderr.strip()
+        return output
+
+    def __lt__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
+        return self.__call__(proc)
+
+    def __lshift__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
+        return self.__call__(proc, stdout=False, stderr=True)
+
+
+def _get_caller_path() -> Path:
+    # NOTE: jupyter will hate this code I'm sure
+    for i, frame in enumerate(inspect.stack()):
+        if (name := frame.filename) != __file__:
+            return Path(name).parent
+    raise ValueError("failed to find root directory of runner")
+
+
+class SwyddSub:
+    def __call__(self, proc: str | SwyddPipe | SwyddProc | SwyddSeq) -> bool:
+        if isinstance(proc, str):
+            return SwyddProc(proc).check()
+        elif (
+            isinstance(proc, SwyddProc)
+            or isinstance(proc, SwyddSeq)
+            or isinstance(proc, SwyddPipe)
+        ):
+            return proc.check()
+        else:
+            raise ValueError(f"unspported type: {type(exec)}")
+
+    def __lt__(self, proc: str | SwyddPipe | SwyddProc | SwyddSeq) -> bool:
+        return self.__call__(proc)
+
+
+class SwyddPath:
+    _root = None
+    _path = None
+
+    def __init__(self, p: Path | None = None) -> None:
+        if p:
+            self._path = p
+
+    @classmethod
+    def from_str(cls, p: str) -> "SwyddPath":
+        return cls() / p
+
+    def __truediv__(self, p: str | Path) -> "SwyddPath":
+        if not (root := self._root):
+            root = _get_caller_path()
+
+        if not self._path:
+            if isinstance(p, str):
+                return SwyddPath(root / p)
+            elif isinstance(p, Path):
+                return SwyddPath(p)
+        else:
+            og = self._path.relative_to(root)
+
+        return SwyddPath(og / p)
+
+    def _check(self) -> Path:
+        if self._path is None:
+            raise ValueError("todo")
+        return self._path
+
+    def write(self, txt: str) -> None:
+        p = self._check()
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(txt + "\n")
+
+    def append(self, txt: str) -> None:
+        p = self._check()
+        p.parent.mkdir(exist_ok=True)
+        with p.open("a") as f:
+            f.write(txt)
+            f.write("\n")
+
+    def __mod__(self, dst: "str | SwyddPath | Path") -> None:
+        if isinstance(dst, str):
+            dst_p = SwyddPath.from_str(
+                dst
+            )._check()  # <- TODO: ensure this uses self._root?
+        elif isinstance(dst, Path):
+            dst_p = dst
+        else:
+            dst_p = dst._check()
+        src_p = self._check()
+        src_p.rename(dst_p)
+
+    def __lt__(self, src: "str | SwyddPath") -> None:
+        if isinstance(src, str):
+            self.write(src)
+        elif isinstance(src, SwyddPath):
+            dst_p = self._check()
+            src_p = src._check()
+            shutil.copyfile(src_p, dst_p)
+
+    def __lshift__(self, txt: str) -> None:
+        self.append(txt)
 
 
 def task(func: Callable[..., Any]) -> Callable[..., None]:
@@ -208,7 +472,7 @@ def task(func: Callable[..., Any]) -> Callable[..., None]:
     return wrap
 
 
-def inspect_wrapper(place, func):
+def _inspect_wrapper(place, func):
     if wrapped := getattr(func, "__wrapped__", None):
         print(place, "wrapped->", id(wrapped))
 
@@ -224,7 +488,7 @@ def task2(
     def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
         ctx._add_task(func, show=True)
 
-        inspect_wrapper("task", func)
+        _inspect_wrapper("task", func)
 
         @wraps(func)
         def inner(*args: Any, **kwargs: Any) -> Callable[..., None]:
@@ -239,7 +503,7 @@ def targets(
     *args: str,
 ) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
     def wrapper(func: Callable[..., Any]) -> Callable[..., Callable[..., None]]:
-        inspect_wrapper("targets", func)
+        _inspect_wrapper("targets", func)
         ctx._add_task(func)
         for arg in args:
             ctx._add_target(func, arg)
@@ -296,7 +560,7 @@ def manage(version: bool = False) -> None:
 
 
 def noop(*args, **kwargs) -> Any:
-    pass
+    _ = args, kwargs
 
 
 def target_generator(
@@ -325,7 +589,7 @@ def target_generator(
     return wrapper
 
 
-def generate_task_subparser(
+def _generate_task_subparser(
     shared: ArgumentParser,
     subparsers: _SubParsersAction,
     task: Task,
@@ -338,7 +602,7 @@ def generate_task_subparser(
     name = task.name if not target else target
     doc = task.func.__doc__.splitlines()[0] if task.func.__doc__ else ""
     subparser = subparsers.add_parser(
-        name,
+        name.replace("_", "-"),
         help=doc,
         description=task.func.__doc__,
         parents=[shared],
@@ -373,15 +637,28 @@ def generate_task_subparser(
     return subparser
 
 
-def add_targets(
+def _add_targets(
     shared: ArgumentParser, subparsers: _SubParsersAction, ctx: Context
 ) -> None:
     for target, id_ in ctx.targets.items():
-        subp = generate_task_subparser(shared, subparsers, ctx._tasks[id_], str(target))
+        subp = _generate_task_subparser(
+            shared, subparsers, ctx._tasks[id_], str(target)
+        )
 
         if subp:
             subp.add_argument("--dag", help="show target dag", action="store_true")
             subp.add_argument("--force", help="force execution", action="store_true")
+
+
+def _task_repr(func: Callable) -> str:
+    return (
+        "\n".join(
+            f"  {line}"
+            for line in inspect.getsource(func).splitlines()
+            if not line.startswith("@")
+        )
+        + "\n"
+    )
 
 
 def cli() -> None:
@@ -406,15 +683,20 @@ def cli() -> None:
         title="tasks", required=True, dest="pos-arg", metavar="<task/target>"
     )
 
-    if len(sys.argv) > 1 and sys.argv[1] == "self":
-        generate_task_subparser(
-            shared, subparsers, Task(manage, name="self", show=True)
+    if len(sys.argv) > 1 and sys.argv[1] == "+swydd":
+        _generate_task_subparser(
+            shared, subparsers, Task(manage, name="+swydd", show=True)
         )
 
-    add_targets(shared, subparsers, ctx)
+    _add_targets(shared, subparsers, ctx)
 
     for task in ctx._tasks.values():
-        generate_task_subparser(shared, subparsers, task)
+        _generate_task_subparser(shared, subparsers, task)
+
+    # TODO: add support for default arg?
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     args = vars(parser.parse_args())
     _ = args.pop("pos-arg", None)
@@ -428,16 +710,7 @@ def cli() -> None:
     if f := args.pop("func", None):
         if ctx.dry:
             sys.stderr.write("dry run >>>\n" f"  args: {args}\n")
-            sys.stderr.write(
-                (
-                    "\n".join(
-                        f"  {line}"
-                        for line in inspect.getsource(f).splitlines()
-                        if not line.startswith("@")
-                    )
-                    + "\n"
-                )
-            )
+            sys.stderr.write(_task_repr(f))
         elif ctx.dag:
             sys.stderr.write(
                 "currently --dag is a noop\n"
@@ -446,6 +719,22 @@ def cli() -> None:
         else:
             f(**args)
 
+
+(
+    proc,
+    pipe,
+    seq,
+    sub,
+    get,
+    path,
+) = (
+    SwyddProc(),
+    SwyddPipe(),
+    SwyddSeq(),
+    SwyddSub(),
+    SwyddGet(),
+    SwyddPath(),
+)
 
 if __name__ == "__main__":
     sys.stderr.write("this module should not be invoked directly\n")

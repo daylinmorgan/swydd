@@ -10,30 +10,30 @@ readme = "README.md"
 license = {text = "MIT"}
 dynamic = ["version"]
 
-[tool.pdm]
-distribution = true
-
-[tool.pdm.version]
-source = "file"
-path = "src/swydd/__init__.py"
-
-[tool.pdm.dev-dependencies]
-dev = [
+[tool.uv]
+dev-dependencies = [
     "pre-commit>=3.6.2",
     "mypy>=1.8.0",
+    "pytest>=8.3.2",
 ]
 
 [tool.ruff]
 select = ["E","F","I"]
 ignore = ["E402"]
 
+[tool.pyright]
+reportUnusedExpression = false
+
 [tool.mypy]
 check_untyped_defs = true
 disallow_untyped_defs = true
 warn_unused_configs = true
 
+[tool.pdm.version]
+source = "file"
+path = "src/swydd/__init__.py"
+
+
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
-
-
