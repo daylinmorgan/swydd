@@ -32,7 +32,9 @@ def check(skip_mypy: bool = False):
         sub < "uv run mypy src/"
 
 
-def copy_source():
+@task
+def docs():
+    """build docs"""
     tags = get < "git tag --list"
     versions = [line for line in tags.splitlines() if line.startswith("v")]
     for tag in versions:
@@ -40,12 +42,6 @@ def copy_source():
             get < f"git show {tag}:src/swydd/__init__.py"
         )
     (path / "docs/swydd.py") < (path / "src/swydd/__init__.py")
-
-
-@task
-def docs():
-    """build docs"""
-    copy_source()
 
 
 cli()
