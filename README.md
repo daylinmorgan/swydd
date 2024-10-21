@@ -3,8 +3,6 @@
 [![MIT License][license-shield]][license-url]
 [![Ruff][ruff-shield]][ruff-url]
 [![pre-commit][pre-commit-shield]][pre-commit-url]
-<!-- [![Stargazers][stars-shield]][stars-url] -->
-<!-- [![PYPI][pypi-shield]][pypi-url] -->
 
 <div align="center">
 <h1>sywdd</h1>
