@@ -45,4 +45,4 @@ def docs():
     asset("docs/swydd.py").write(asset("src/swydd/__init__.py"))
 
 
-cli()
+cli("check")
