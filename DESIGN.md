@@ -41,6 +41,7 @@ def pipe_commands()
 
 Made even simpler with operator overloading:
 
+
 ```python
 @task
 def run_commands():
@@ -48,6 +49,17 @@ def run_commands():
   print(stdout)
 ```
 
+Upon reflection I think the operator overloading is wildly confusing.
+I think it will make more sense to try to develop chainable objects:
+
+Make `sub(cmd, **kwargs)` and alias for `proc(cmd).run(**kwargs)`
+
+```python
+@task
+def run_commands():
+  stdout = proc("find . -name file").pipe("grep 'pattern'").get()
+  print(stdout)
+```
 
 ## Internal CLI
 
@@ -56,5 +68,5 @@ def run_commands():
 # vs
 ./tasks.py _swydd-subcmd
 # or
-./tasks.py +swydd-subcmd # <- current favorite (use a none valid function name to possibly prevent overlap)
+./tasks.py +swydd subcmd # <- current favorite (use a none valid function name to possibly prevent overlap)
 ```
