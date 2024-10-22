@@ -135,9 +135,6 @@ class Context:
         for task in self._tasks.values():
             if not task.targets:
                 continue
-            print(task.name)
-            print(task.targets)
-            print(task.needs)
             for target in task.targets:
                 if not task.needs:
                     self._graph.add_nodes(task, target, None)
@@ -676,7 +673,7 @@ def _task_repr(func: Callable) -> str:
     )
 
 
-def cli() -> None:
+def cli(default: str | None = None) -> None:
     ctx._generate_graph()
 
     parser = ArgumentParser(
@@ -708,11 +705,14 @@ def cli() -> None:
     for task in ctx._tasks.values():
         _generate_task_subparser(shared, subparsers, task)
 
-    # TODO: add support for default arg?
     if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
-    elif "--" in sys.argv:
+        if default:
+            sys.argv.append(default)
+        else:
+            parser.print_help(sys.stderr)
+            sys.exit(1)
+
+    if "--" in sys.argv:
         i = sys.argv.index("--")
         args = vars(parser.parse_args(sys.argv[1:i]))
         ctx.rest = sys.argv[i + 1 :]
