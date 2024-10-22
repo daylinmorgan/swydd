@@ -134,7 +134,9 @@ class Context:
         for task in self._tasks.values():
             if not task.targets:
                 continue
-
+            print(task.name)
+            print(task.targets)
+            print(task.needs)
             for target in task.targets:
                 if not task.needs:
                     self._graph.add_nodes(task, target, None)
@@ -151,7 +153,7 @@ class Context:
 ctx = Context()
 
 
-def define_env(key: str, value: str) -> None:
+def setenv(key: str, value: str) -> None:
     ctx._env.update({key: value})
 
 
@@ -183,18 +185,6 @@ class SwyddSubResult:
 
 
 class SwyddProc:
-    """
-    usage:
-        sub < proc("echo $WORD world", env={'WORD':'hello'})
-        sub < (proc | "single proc")
-
-        sub < (proc | "echo hello" | "wc -c")
-        sub(proc("hello world").pipe("wc -c"))
-
-        sub < (proc & "cat -a" & "echo unreachable")
-        sub(proc("cat -a").then("echo unreachable")
-    """
-
     def __init__(
         self, cmd: str | None = None, output: bool = False, **kwargs: Any
     ) -> None:
@@ -203,6 +193,10 @@ class SwyddProc:
             self.cmd = shlex.split(cmd)
         self.output = output
         self.cmd_kwargs = kwargs
+
+    @classmethod
+    def __call__(cls, *args, **kwargs) -> "SwyddProc":
+        return cls(*args, **kwargs)
 
     def pipe(self, proc: "str | SwyddProc") -> "SwyddPipe | SwyddProc":
         if isinstance(proc, str):
@@ -213,8 +207,8 @@ class SwyddProc:
         elif isinstance(proc, SwyddProc):
             return SwyddPipe(proc)
 
-    def __or__(self, proc: "str | SwyddProc") -> "SwyddPipe | SwyddProc":
-        return self.pipe(proc)
+    # def __or__(self, proc: "str | SwyddProc") -> "SwyddPipe | SwyddProc":
+    #     return self.pipe(proc)
 
     def then(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
         if self._cmd:
@@ -228,8 +222,8 @@ class SwyddProc:
         else:
             return SwyddSeq(SwyddProc(proc))
 
-    def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
-        return self.then(proc)
+    # def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+    #     return self.then(proc)
 
     def _build_kwargs(self) -> Dict[str, Any]:
         sub_kwargs: Dict[str, Any] = dict(env={**os.environ, **ctx._env})
@@ -297,8 +291,8 @@ class SwyddPipe:
     def pipe(self, proc: "str | SwyddProc | SwyddPipe") -> "SwyddPipe":
         return SwyddPipe(self, proc)
 
-    def __or__(self, proc: "str | SwyddProc | SwyddPipe") -> "SwyddPipe":
-        return self.pipe(proc)
+    # def __or__(self, proc: "str | SwyddProc | SwyddPipe") -> "SwyddPipe":
+    #     return self.pipe(proc)
 
 
 class SwyddSeq:
@@ -319,8 +313,8 @@ class SwyddSeq:
     def then(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
         return SwyddSeq(*self._procs, proc)
 
-    def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
-        return self.then(proc)
+    # def __and__(self, proc: "str | SwyddProc | SwyddSeq") -> "SwyddSeq":
+    #     return self.then(proc)
 
     def execute(self, output: bool = False) -> "SwyddSubResult":
         results = []
@@ -342,6 +336,7 @@ class SwyddSeq:
         return self.run() == 0
 
 
+# TODO: best interface for "get"
 class SwyddGet:
     def __call__(
         self, proc: str | SwyddProc | SwyddPipe | SwyddSeq, stdout=True, stderr=False
@@ -364,11 +359,11 @@ class SwyddGet:
             output += result.stderr.strip()
         return output
 
-    def __lt__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
-        return self.__call__(proc)
-
-    def __lshift__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
-        return self.__call__(proc, stdout=False, stderr=True)
+    # def __lt__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
+    #     return self.__call__(proc)
+    #
+    # def __lshift__(self, proc: str | SwyddProc | SwyddPipe | SwyddSeq) -> str:
+    #     return self.__call__(proc, stdout=False, stderr=True)
 
 
 def _get_caller_path() -> Path:
@@ -392,21 +387,30 @@ class SwyddSub:
         else:
             raise ValueError(f"unspported type: {type(exec)}")
 
-    def __lt__(self, proc: str | SwyddPipe | SwyddProc | SwyddSeq) -> bool:
-        return self.__call__(proc)
 
-
+# TODO: change alias to not confuse with pathlib.Path?
+# asset / file ... partial to asset
 class SwyddPath:
     _root = None
     _path = None
 
     def __init__(self, p: Path | None = None) -> None:
         if p:
-            self._path = p
+            self._path = Path(p)
+
+    @classmethod
+    def __call__(cls, p: str) -> "SwyddPath":
+        return cls.from_str(p)
 
     @classmethod
     def from_str(cls, p: str) -> "SwyddPath":
         return cls() / p
+
+    def read(self) -> str:
+        if self._path:
+            return self._path.read_text()
+        else:
+            raise ValueError("path is not set")
 
     def __truediv__(self, p: str | Path) -> "SwyddPath":
         if not (root := self._root):
@@ -427,19 +431,27 @@ class SwyddPath:
             raise ValueError("todo")
         return self._path
 
-    def write(self, txt: str) -> None:
+    def _write_text(self, txt: str) -> "SwyddPath":
         p = self._check()
         p.parent.mkdir(exist_ok=True)
         p.write_text(txt + "\n")
+        return self
 
-    def append(self, txt: str) -> None:
+    def write(self, src: "str | SwyddPath") -> "SwyddPath":
+        if isinstance(src, str):
+            return self._write_text(src)
+        elif isinstance(src, SwyddPath):
+            return self._write_text(src.read())
+
+    def _append_text(self, txt: str) -> "SwyddPath":
         p = self._check()
         p.parent.mkdir(exist_ok=True)
         with p.open("a") as f:
             f.write(txt)
             f.write("\n")
+        return self
 
-    def __mod__(self, dst: "str | SwyddPath | Path") -> None:
+    def rename(self, dst: "str | SwyddPath | Path") -> None:
         if isinstance(dst, str):
             dst_p = SwyddPath.from_str(
                 dst
@@ -451,7 +463,7 @@ class SwyddPath:
         src_p = self._check()
         src_p.rename(dst_p)
 
-    def __lt__(self, src: "str | SwyddPath") -> None:
+    def copy(self, src: "str | SwyddPath") -> None:
         if isinstance(src, str):
             self.write(src)
         elif isinstance(src, SwyddPath):
@@ -459,8 +471,11 @@ class SwyddPath:
             src_p = src._check()
             shutil.copyfile(src_p, dst_p)
 
-    def __lshift__(self, txt: str) -> None:
-        self.append(txt)
+    def append(self, src: "str | SwyddPath") -> "SwyddPath":
+        if isinstance(src, str):
+            return self._append_text(src)
+        elif isinstance(src, SwyddPath):
+            return self._append_text(src.read().strip())
 
 
 def task(func: Callable[..., Any]) -> Callable[..., None]:
@@ -573,14 +588,14 @@ def target_generator(
             if not (target_path := Path(target)).is_file():
                 return func(*args, **kwargs)
             elif not needs:
-                sys.stderr.write(f"{target} already exists\n")
+                sys.stderr.write(f"{target_path} up to date, exiting\n")
             else:
                 target_stats = target_path.stat()
                 needs_stats = [Path(need).stat() for need in needs]
                 if any((stat.st_mtime > target_stats.st_mtime for stat in needs_stats)):
                     return func(*args, **kwargs)
                 else:
-                    sys.stderr.write("doing nothing\n")
+                    sys.stderr.write(f"{target_path} up to date, exiting\n")
 
             return noop(*args, **kwargs)
 
@@ -735,6 +750,15 @@ def cli() -> None:
     SwyddGet(),
     SwyddPath(),
 )
+
+asset = SwyddPath()
+
+
+def geterr(*args, **kwargs) -> str:
+    get_kwargs = dict(stderr=True, stdout=False)
+    get_kwargs.update(kwargs)
+    return get(*args, **get_kwargs)
+
 
 if __name__ == "__main__":
     sys.stderr.write("this module should not be invoked directly\n")
