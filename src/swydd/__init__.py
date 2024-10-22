@@ -101,6 +101,7 @@ class Context:
         self._flag_defs: List[Tuple[Tuple[str, ...], Any]] = []
         self.show_targets = True
         self._graph = Graph()
+        self.rest = []  # remaining positional args
 
         # global flags
         self.dry = False
@@ -568,8 +569,7 @@ def option(
 
 
 def manage(version: bool = False) -> None:
-    """manage self"""
-    print("self management stuff")
+    """internal cli"""
     if version:
         print("current version", __version__)
 
@@ -712,8 +712,13 @@ def cli() -> None:
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
+    elif "--" in sys.argv:
+        i = sys.argv.index("--")
+        args = vars(parser.parse_args(sys.argv[1:i]))
+        ctx.rest = sys.argv[i + 1 :]
+    else:
+        args = vars(parser.parse_args())
 
-    args = vars(parser.parse_args())
     _ = args.pop("pos-arg", None)
     ctx.verbose = args.pop("verbose", False)
     ctx.dry = args.pop("dry_run", False)
