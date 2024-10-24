@@ -623,6 +623,9 @@ def _internal_cli():
     parser.add_argument("-V", "--version", help="show version", action="store_true")
     parser.add_argument("--which", help="show path to swydd", action="store_true")
 
+    if len(sys.argv) == 2:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
     args = parser.parse_args(sys.argv[2:])
 
     if args.version:
