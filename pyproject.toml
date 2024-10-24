@@ -35,7 +35,6 @@ warn_unused_configs = true
 source = "file"
 path = "src/swydd/__init__.py"
 
-
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
