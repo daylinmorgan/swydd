@@ -102,6 +102,7 @@ class Context:
     def __init__(self) -> None:
         self._env: Dict[str, str] = {}
         self._tasks: Dict[str, Any] = {}
+        self._ids: Dict[str, str] = {}
         self.targets: Dict[str, Any] = {}
         self.data: Any = None
         self.flags: Dict[str, Any] = {}
@@ -119,6 +120,7 @@ class Context:
     def _add_task(self, func: Callable[..., Any], show: bool = False) -> str:
         if (id_ := _id_from_func(func)) not in self._tasks:
             self._tasks[id_] = Task(func)
+            self._ids[func.__name__] = id_
         if show:
             self._tasks[id_]._mark()
         return id_
@@ -147,6 +149,10 @@ class Context:
                 else:
                     for need in task.needs:
                         self._graph.add_nodes(task, target, need)
+
+    def _get_task(self, name: str) -> Task:
+        assert name in self._ids
+        return self._tasks[self._ids[name]]
 
     def add_flag(self, *args: str, **kwargs: Any) -> None:
         name = max(args, key=len).split("-")[-1]
@@ -229,11 +235,13 @@ class SwyddProc:
         sub_kwargs.update(**self.cmd_kwargs)
         return sub_kwargs
 
-    def execute(self, output: bool = False) -> SwyddSubResult:
+    def _show_command(self) -> None:
         if ctx.verbose:
             sys.stdout.write(f"swydd exec | {self._cmd}\n")
 
+    def execute(self, output: bool = False) -> SwyddSubResult:
         self.output = self.output or output
+        self._show_command()
 
         p = Popen(self.cmd, **self._build_kwargs())
 
@@ -270,9 +278,16 @@ class SwyddPipe:
     def check(self) -> bool:
         return self.execute().code == 0
 
+    def _show_command(self) -> None:
+        if ctx.verbose:
+            cmd_str = " | ".join([p._cmd for p in self._procs])
+            sys.stdout.write(f"swydd exec | {cmd_str}\n")
+
     def execute(self, output: bool = False) -> SwyddSubResult:
         procs = []
         sub_kwargs: Dict[str, Any] = dict(env={**os.environ, **ctx._env})
+        self._show_command()
+
         for i, cmd in enumerate(self._procs, 1):
             kwargs = {}
             if i > 1:
@@ -316,6 +331,11 @@ class SwyddSeq:
             elif isinstance(proc, str):
                 self._procs.append(SwyddProc(proc))
 
+    def _show_command(self) -> None:
+        if ctx.verbose:
+            cmd_str = " && ".join([p._cmd for p in self._procs])
+            sys.stderr.write(f"sywdd exec | {cmd_str}\n")
+
     @classmethod
     def __call__(cls, *args, **kwargs) -> "SwyddSeq":
         return cls(*args, **kwargs)
@@ -324,6 +344,8 @@ class SwyddSeq:
         return SwyddSeq(*self._procs, proc)
 
     def execute(self, output: bool = False) -> "SwyddSubResult":
+        self._show_command()
+
         results = []
         for proc in self._procs:
             results.append(result := proc.execute(output=output))
@@ -333,6 +355,8 @@ class SwyddSeq:
         return results[-1]
 
     def run(self) -> int:
+        self._show_command()
+
         rc = 0
         for proc in self._procs:
             if (rc := proc.execute().code) != 0:
@@ -567,7 +591,7 @@ def noop(*args, **kwargs) -> Any:
     _ = args, kwargs
 
 
-def target_generator(
+def _target_generator(
     target: str,
     needs: List[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Callable[..., None]]]:
@@ -593,6 +617,8 @@ def target_generator(
     return wrapper
 
 
+# TODO: reduce how the load bearing on this function
+# seperate by subparser for tasks vs subparser for target
 def _generate_task_subparser(
     shared: ArgumentParser,
     subparsers: _SubParsersAction,
@@ -608,7 +634,6 @@ def _generate_task_subparser(
     name = task.name if not target else target
     if doc == "" and task.func.__doc__:
         doc = task.func.__doc__.splitlines()[0]
-    # doc = task.func.__doc__.splitlines()[0] if task.func.__doc__ else ""
     subparser = subparsers.add_parser(
         name.replace("_", "-"),
         help=doc,
@@ -640,15 +665,15 @@ def _generate_task_subparser(
 
     # TODO: properly build out a dag from tasks "needs"
     # for now add a simple check for existense
-    # for need in task.needs:
-    #     asset(need)._check()
+    # this check needs to exit early
+    # if nothing can produce said asset
 
     def executor(*args, **kwargs):
         for need in task.needs:
             asset(need)._check()
 
         f = (
-            target_generator(target, ctx._graph.nodes[target])(task.func)
+            _target_generator(target, ctx._graph.nodes[target])(task.func)
             if target
             else task.func
         )
@@ -746,7 +771,7 @@ def cli(default: str | None = None) -> None:
     else:
         args = vars(parser.parse_args())
 
-    _ = args.pop("pos-arg", None)
+    pos_arg = args.pop("pos-arg", None)
     ctx.verbose = args.pop("verbose", False)
     ctx.dry = args.pop("dry_run", False)
     ctx.dag = args.pop("dag", False)
@@ -759,7 +784,7 @@ def cli(default: str | None = None) -> None:
             sys.stderr.write("dry run >>>\n" f"  args: {args}\n")
             if ctx._env:
                 sys.stderr.write(f"  env: {ctx._env}\n")
-            sys.stderr.write(_task_repr(f))
+            sys.stderr.write(_task_repr(ctx._get_task(pos_arg).func))
         elif ctx.dag:
             sys.stderr.write(
                 "currently --dag is a noop\n"
