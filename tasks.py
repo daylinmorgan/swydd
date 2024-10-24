@@ -5,44 +5,50 @@ __import__("sys").path.append("src")
 import shutil
 import sys
 
-from swydd import asset, cli, get, option, proc, sub, task
+import swydd as s
 
 
-@task
+@s.task
 def bootstrap():
     """setup swydd dev environment"""
     if not shutil.which("uv"):
         sys.exit("uv necessary for swydd development")
-    (proc("uv sync").then("uv run pre-commit install").run())
+    (s.Proc("uv sync").then("uv run pre-commit install").run())
 
 
-@task
+@s.task
 def tests():
     """run pytest"""
-    sub("uv run pytest")
+    s.sub("uv run pytest")
 
 
-@task
-@option("skip-mypy", "skip mypy")
+@s.task
+@s.option("skip-mypy", "skip mypy")
 def check(skip_mypy: bool = False):
     """run pre-commit (and mypy)"""
-    sub("uv run pre-commit run --all")
+    s.sub("uv run pre-commit run --all")
     if not skip_mypy:
-        sub("uv run mypy src/")
+        s.sub("uv run mypy src/")
 
 
-@task
-def docs():
+@s.task
+def serve_docs():
+    """serve the docs with sphinx-autobuild"""
+    s.sub("uv run sphinx-autobuild docs/source docs/build --watch src", rest=True)
+
+
+@s.task
+def build_docs():
     """build docs"""
-    tags = get("git tag --list")
+
+    s.sub("uv run sphinx-build docs/source docs/build")
+
+    tags = s.get("git tag --list")
     versions = [line for line in tags.splitlines() if line.startswith("v")]
     for tag in versions:
-        (
-            asset(f"docs/{tag}/swydd.py").write(
-                get(f"git show {tag}:src/swydd/__init__.py")
-            )
-        )
-    asset("docs/swydd.py").write(asset("src/swydd/__init__.py"))
+        version_swydd_src = s.get(f"git show {tag}:src/swydd/__init__.py")
+        s.Asset(f"docs/build/{tag}/swydd.py").write(version_swydd_src)
+    s.Asset("docs/build/swydd.py").copy(s.Asset("src/swydd/__init__.py"))
 
 
-cli("check --skip-mypy")
+s.cli("check --skip-mypy")
