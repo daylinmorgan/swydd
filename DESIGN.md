@@ -12,11 +12,13 @@ basic design:
 ```python
 from swydd import taks, option, cli
 
+
 @task
-@option("program","name of program to compile")
+@option("program", "name of program to compile")
 def build(program: str = "hello"):
-  """build a program"""
-  sub < f"gcc -o {program} {program}.c"
+    """build a program"""
+    sub < f"gcc -o {program} {program}.c"
+
 
 cli()
 ```
@@ -32,11 +34,10 @@ cli()
 
 ```python
 @task
-def pipe_commands()
+def pipe_commands():
     """run pre-commit (and mypy)"""
     p = Pipe(Exec("find . -name file"), Exec("grep 'pattern'")).get()
     print(p.stdout)
-
 ```
 
 Made even simpler with operator overloading:
@@ -45,8 +46,8 @@ Made even simpler with operator overloading:
 ```python
 @task
 def run_commands():
-  stdout = get < (pipe | "find . -name file" | "grep 'pattern'")
-  print(stdout)
+    stdout = get < (pipe | "find . -name file" | "grep 'pattern'")
+    print(stdout)
 ```
 
 Upon reflection I think the operator overloading is wildly confusing.
@@ -57,16 +58,27 @@ Make `sub(cmd, **kwargs)` and alias for `proc(cmd).run(**kwargs)`
 ```python
 @task
 def run_commands():
-  stdout = proc("find . -name file").pipe("grep 'pattern'").get()
-  print(stdout)
+    stdout = proc("find . -name file").pipe("grep 'pattern'").get()
+    print(stdout)
 ```
+
+## Handling a DAG
+
+```python
+@task
+@needs("src/a-file.txt")
+@targets("build/output.txt")
+def build():
+    """build step with a dependency"""
+    lines = asset("src/a-filter.txt").read().splitlines()
+    # or lines = ctx.needs[0].read().splitlines()
+    ctx.targets.output.write("\n".join([f"{i}: {line}" for i, line in enumerate(lines)]))
+```
+
+
 
 ## Internal CLI
 
 ```sh
-./tasks.py _ swydd-subcmd
-# vs
-./tasks.py _swydd-subcmd
-# or
-./tasks.py +swydd subcmd # <- current favorite (use a none valid function name to possibly prevent overlap)
+./tasks.py +swydd --version # <- current favorite (use a none valid function name to possibly prevent overlap)
 ```
