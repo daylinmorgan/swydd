@@ -5,8 +5,8 @@ swydd
 =====
 
 .. rst-class:: lead
-    
-    Swydd will yield desired deliverables.
+
+    **S**\ wydd **w**\ ill **y**\ ield **d**\ esired **d**\ eliverables.
     See the `api reference </api.html>`_ for more info.
     There is not currently sufficient usage examples.
     For now check `tasks.py <https://github.com/daylinmorgan/swydd/blob/main/tasks.py>`_ for example usage
