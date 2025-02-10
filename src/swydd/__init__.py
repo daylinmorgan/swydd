@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from subprocess import CompletedProcess
     from typing import Any, Callable, Dict, List, Optional, Tuple
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 # TODO: make this ouput wider help when necessary
