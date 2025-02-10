@@ -31,3 +31,7 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Attestations don't currently support reusable workflows
+          # so publishing fails if this is enabled: https://github.com/pypi/warehouse/issues/11096
+          attestations: false
